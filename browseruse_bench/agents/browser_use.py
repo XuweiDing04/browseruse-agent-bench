@@ -223,28 +223,64 @@ def _patch_schema_optimizer_for_claude() -> None:
     setattr(SchemaOptimizer, _PATCHED_SCHEMA_OPTIMIZER_ATTR, True)
 
 
-def _enable_claude_thinking(llm: Any, reasoning_effort: str) -> None:
-    """Inject Claude reasoning params for OpenAI-compatible gateways."""
+def _normalize_allowed_openai_params(value: Any) -> list[str]:
+    """Validate and de-duplicate LiteLLM's per-request parameter allowlist."""
+    if value is None:
+        return []
+    if not isinstance(value, (list, tuple)) or not all(
+        isinstance(param, str) and param for param in value
+    ):
+        raise ValueError("allowed_openai_params must be a list of non-empty strings")
+    return list(dict.fromkeys(value))
+
+
+def _enable_litellm_chat_passthrough(
+    llm: Any,
+    allowed_openai_params: list[str],
+    *,
+    extra_body_defaults: dict[str, Any] | None = None,
+) -> None:
+    """Inject LiteLLM-only fields into each Chat Completions request.
+
+    browser-use's pinned ``ChatOpenAI`` does not expose OpenAI SDK
+    ``extra_body`` as a constructor option. LiteLLM 1.93 requires
+    ``allowed_openai_params`` in the request body when its capability metadata
+    does not yet recognize a parameter that the upstream endpoint accepts, so
+    wrap the fresh client returned for every invocation.
+    """
+    injected_allowed = _normalize_allowed_openai_params(allowed_openai_params)
+    defaults = dict(extra_body_defaults or {})
     original_get_client = llm.get_client
 
-    def get_client_with_thinking() -> Any:
+    def get_client_with_passthrough() -> Any:
         client = original_get_client()
         original_create = client.chat.completions.create
 
-        async def create_with_thinking(*args: Any, **kwargs: Any) -> Any:
+        async def create_with_passthrough(*args: Any, **kwargs: Any) -> Any:
             extra_body = dict(kwargs.get("extra_body") or {})
-            extra_body.setdefault("reasoning_effort", reasoning_effort)
-            allowed = list(extra_body.get("allowed_openai_params") or [])
-            if "reasoning_effort" not in allowed:
-                allowed.append("reasoning_effort")
+            for key, value in defaults.items():
+                extra_body.setdefault(key, value)
+            allowed = _normalize_allowed_openai_params(extra_body.get("allowed_openai_params"))
+            for param in injected_allowed:
+                if param not in allowed:
+                    allowed.append(param)
             extra_body["allowed_openai_params"] = allowed
             kwargs["extra_body"] = extra_body
             return await original_create(*args, **kwargs)
 
-        client.chat.completions.create = create_with_thinking  # type: ignore[method-assign]
+        client.chat.completions.create = create_with_passthrough  # type: ignore[method-assign]
         return client
 
-    llm.get_client = get_client_with_thinking  # type: ignore[method-assign]
+    llm.get_client = get_client_with_passthrough  # type: ignore[method-assign]
+
+
+def _enable_claude_thinking(llm: Any, reasoning_effort: str) -> None:
+    """Inject Claude reasoning params for OpenAI-compatible gateways."""
+    _enable_litellm_chat_passthrough(
+        llm,
+        ["reasoning_effort"],
+        extra_body_defaults={"reasoning_effort": reasoning_effort},
+    )
 
 
 class _LLMFailureRecorder:
@@ -969,6 +1005,21 @@ class BrowserUseAgent(BaseAgent):
         else:
             kwargs = provider_builders[model_type](model_id, agent_config, config_info)
             llm = llm_class(**kwargs)
+
+        allowed_openai_params = _normalize_allowed_openai_params(
+            agent_config.get("allowed_openai_params")
+        )
+        if allowed_openai_params:
+            if model_type != "OPENAI":
+                raise ValueError(
+                    "allowed_openai_params is only supported for OPENAI Chat Completions models"
+                )
+            if agent_config.get("model_api_style") == "responses":
+                raise ValueError(
+                    "allowed_openai_params passthrough is only supported for Chat Completions"
+                )
+            _enable_litellm_chat_passthrough(llm, allowed_openai_params)
+            config_info["allowed_openai_params"] = allowed_openai_params
 
         if is_claude and model_type in ("OPENAI", "AZURE"):
             thinking_enabled = _get_config_value(
