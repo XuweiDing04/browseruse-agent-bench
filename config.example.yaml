@@ -36,6 +36,10 @@ models:
     base_url: $OPENAI_BASE_URL
     max_tokens: 16384
     reasoning_effort: xhigh
+    # LiteLLM 1.93 rejects reasoning_effort for this custom model alias before
+    # forwarding it; explicitly allow the parameter for this request.
+    allowed_openai_params:
+      - reasoning_effort
     llm_timeout: 150
     dont_force_structured_output: false
     add_schema_to_system_prompt: true

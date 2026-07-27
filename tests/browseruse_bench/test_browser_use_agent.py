@@ -204,6 +204,124 @@ def test_build_openai_kwargs_rejects_invalid_reasoning_effort() -> None:
         )
 
 
+def test_litellm_chat_passthrough_merges_allowed_openai_params() -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeCompletions:
+        async def create(self, *args: Any, **kwargs: Any) -> str:
+            captured["kwargs"] = kwargs
+            return "ok"
+
+    class FakeLLM:
+        def get_client(self) -> Any:
+            return SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    llm = FakeLLM()
+    browser_use_module._enable_litellm_chat_passthrough(
+        llm,
+        ["reasoning_effort", "reasoning_effort"],
+    )
+
+    result = asyncio.run(
+        llm.get_client().chat.completions.create(
+            messages=[],
+            extra_body={
+                "allowed_openai_params": ["tools"],
+                "gateway_trace": "keep-me",
+            },
+        )
+    )
+
+    assert result == "ok"
+    assert captured["kwargs"]["extra_body"] == {
+        "allowed_openai_params": ["tools", "reasoning_effort"],
+        "gateway_trace": "keep-me",
+    }
+
+
+def test_create_llm_enables_configured_litellm_passthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeLLM:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    def fake_enable_passthrough(
+        llm: Any,
+        allowed_openai_params: list[str],
+        *,
+        extra_body_defaults: dict[str, Any] | None = None,
+    ) -> None:
+        captured["passthrough_llm"] = llm
+        captured["allowed_openai_params"] = allowed_openai_params
+        captured["extra_body_defaults"] = extra_body_defaults
+
+    monkeypatch.setattr(browser_use_module, "ChatOpenAI", FakeLLM)
+    monkeypatch.setattr(
+        browser_use_module,
+        "_enable_litellm_chat_passthrough",
+        fake_enable_passthrough,
+    )
+
+    config_info: dict[str, Any] = {}
+    llm = BrowserUseAgent()._create_llm(
+        "OPENAI",
+        "gpt-5.6-sol",
+        {
+            "api_key": "key",
+            "base_url": "https://gateway.example/v1",
+            "reasoning_effort": "xhigh",
+            "allowed_openai_params": [
+                "reasoning_effort",
+                "reasoning_effort",
+            ],
+        },
+        config_info,
+    )
+
+    assert captured["passthrough_llm"] is llm
+    assert captured["allowed_openai_params"] == ["reasoning_effort"]
+    assert config_info["allowed_openai_params"] == ["reasoning_effort"]
+
+
+def test_create_llm_rejects_invalid_allowed_openai_params() -> None:
+    with pytest.raises(ValueError, match="allowed_openai_params"):
+        BrowserUseAgent()._create_llm(
+            "OPENAI",
+            "gpt-5.6-sol",
+            {
+                "api_key": "key",
+                "base_url": "https://gateway.example/v1",
+                "allowed_openai_params": "reasoning_effort",
+            },
+            {},
+        )
+
+
+def test_create_llm_rejects_passthrough_for_azure_model_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeLLM:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+    monkeypatch.setattr(browser_use_module, "ChatAzureOpenAI", FakeLLM)
+
+    with pytest.raises(ValueError, match="OPENAI Chat Completions"):
+        BrowserUseAgent()._create_llm(
+            "AZURE",
+            "gpt-5.6-sol",
+            {
+                "api_key": "key",
+                "base_url": "https://gateway.example/v1",
+                "allowed_openai_params": ["reasoning_effort"],
+            },
+            {},
+        )
+
+
 class _OutputForParserTest(BaseModel):
     memory: str
     action: list[dict[str, Any]]
