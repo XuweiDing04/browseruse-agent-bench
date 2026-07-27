@@ -22,8 +22,10 @@ from browseruse_bench.utils import (
     resolve_split,
 )
 from browseruse_bench.utils.config_loader import (
+    CURRENT_CONFIG_SCHEMA_VERSION,
     load_eval_config,
     resolve_key_case_insensitive,
+    validate_runtime_config_schema,
 )
 
 
@@ -58,6 +60,32 @@ class TestLoadConfigFile:
 
         result = load_config_file(config_file)
         assert result == {} or result is None
+
+
+class TestRuntimeConfigSchema:
+    def test_example_uses_current_schema_version(self) -> None:
+        config = load_config_file(REPO_ROOT / "config.example.yaml")
+
+        assert config["config_schema_version"] == CURRENT_CONFIG_SCHEMA_VERSION
+        validate_runtime_config_schema(config, "config.example.yaml")
+
+    @pytest.mark.parametrize("version", [None, 0, "1", True])
+    def test_rejects_stale_or_invalid_version(self, version: object) -> None:
+        config = {} if version is None else {"config_schema_version": version}
+
+        with pytest.raises(SystemExit, match="ignored by Git"):
+            validate_runtime_config_schema(config, "config.yaml")
+
+    @pytest.mark.parametrize("config", [[], "config", 1, True])
+    def test_rejects_non_mapping_yaml(self, config: object) -> None:
+        with pytest.raises(SystemExit, match="top-level YAML mapping"):
+            validate_runtime_config_schema(config, "config.yaml")
+
+    def test_rejects_config_newer_than_checkout(self) -> None:
+        config = {"config_schema_version": CURRENT_CONFIG_SCHEMA_VERSION + 1}
+
+        with pytest.raises(SystemExit, match="Update the repository first"):
+            validate_runtime_config_schema(config, "config.yaml")
 
 
 class TestLoadEvalConfig:

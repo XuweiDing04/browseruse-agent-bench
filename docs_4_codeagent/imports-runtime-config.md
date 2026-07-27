@@ -44,3 +44,6 @@ export PYTHONPATH=/path/to/browseruse_bench && python script.py
 - Do not hardcode timeout, URL, API key, model name, or similar runtime values.
 - Read config from `config.yaml`, environment variables, or passed config objects (for example `AgentConfig`).
 - Store configured file paths as relative paths and resolve to absolute paths with `REPO_ROOT` when reading.
+- When an existing ignored `config.yaml` requires a manual migration, increment both
+  `CURRENT_CONFIG_SCHEMA_VERSION` and `config.example.yaml`'s `config_schema_version`.
+  Keep the runtime mismatch error actionable; never overwrite user credentials or custom settings.

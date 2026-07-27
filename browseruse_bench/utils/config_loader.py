@@ -21,6 +21,8 @@ from browseruse_bench.utils.repo_root import REPO_ROOT
 logger = logging.getLogger(__name__)
 _EVAL_STRUCTURAL_KEYS = {"api_key", "base_url"}
 _AGENT_REGISTRY_PATH = REPO_ROOT / "configs" / "agent_registry.yaml"
+CONFIG_SCHEMA_VERSION_KEY = "config_schema_version"
+CURRENT_CONFIG_SCHEMA_VERSION = 1
 
 
 def _skyvern_temp_database_string() -> str:
@@ -79,6 +81,35 @@ def load_config_file(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     data = yaml.safe_load(text) or {}
     return _expand_env_vars(data)
+
+
+def validate_runtime_config_schema(config: object, source: str | Path) -> None:
+    """Reject malformed or stale ignored runtime configs before a benchmark launches."""
+    if not isinstance(config, dict):
+        raise SystemExit(
+            f"[FAILED] Runtime config {source} must contain a top-level YAML mapping; "
+            f"found {type(config).__name__}."
+        )
+
+    version = config.get(CONFIG_SCHEMA_VERSION_KEY)
+    valid_integer = isinstance(version, int) and not isinstance(version, bool)
+    if valid_integer and version == CURRENT_CONFIG_SCHEMA_VERSION:
+        return
+
+    if valid_integer and version > CURRENT_CONFIG_SCHEMA_VERSION:
+        raise SystemExit(
+            f"[FAILED] Runtime config {source} requires schema version {version}, but this "
+            f"checkout supports {CURRENT_CONFIG_SCHEMA_VERSION}. Update the repository first."
+        )
+
+    found = "missing" if version is None else repr(version)
+    raise SystemExit(
+        f"[FAILED] Runtime config schema is outdated in {source}.\n"
+        f"Expected `{CONFIG_SCHEMA_VERSION_KEY}: {CURRENT_CONFIG_SCHEMA_VERSION}`; found {found}.\n"
+        "Runtime config files are normally ignored by Git and are not updated by `git pull`. "
+        "If this file is missing, create it from the latest config.example.yaml. Otherwise "
+        "back it up, merge required changes from that template, then update its schema version."
+    )
 
 
 def load_default_package_config() -> dict[str, Any]:

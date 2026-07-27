@@ -6,9 +6,9 @@ import sys
 
 import pytest
 
+import browseruse_bench.cli as cli_pkg
 from browseruse_bench.cli.viz import configure_viz_parser
-from browseruse_bench.utils import REPO_ROOT
-from browseruse_bench.utils import create_eval_parser, create_run_parser
+from browseruse_bench.utils import REPO_ROOT, create_eval_parser, create_run_parser
 
 
 class TestCreateRunParser:
@@ -24,6 +24,30 @@ class TestCreateRunParser:
         # Check default values exist
         assert hasattr(args, 'mode')
         assert hasattr(args, 'count')
+
+
+@pytest.mark.parametrize("command", ["run", "eval"])
+def test_runtime_commands_reject_non_mapping_config_before_parser(
+    command: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_pkg, "load_config_file", lambda _: ["not", "a", "mapping"])
+
+    with pytest.raises(SystemExit, match="top-level YAML mapping"):
+        cli_pkg.main([command])
+
+
+@pytest.mark.parametrize("command", ["run", "eval"])
+def test_runtime_command_help_works_with_non_mapping_config(
+    command: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_pkg, "load_config_file", lambda _: ["not", "a", "mapping"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_pkg.main([command, "--help"])
+
+    assert exc_info.value.code == 0
 
 
 class TestConfigureVizParser:

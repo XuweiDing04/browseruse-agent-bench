@@ -50,6 +50,7 @@ from browseruse_bench.utils import (
     resolve_output_model_id,
     resolve_split,
 )
+from browseruse_bench.utils.config_loader import validate_runtime_config_schema
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,11 @@ def _shared_parser() -> argparse.ArgumentParser:
     """Parser for only the flags needed to bridge run -> eval (rest forwarded)."""
     # allow_abbrev=False: otherwise run's --mode is matched as a prefix of our
     # --model and consumed here instead of being forwarded to the run stage.
-    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    parser = argparse.ArgumentParser(
+        prog="bubench run-eval",
+        description="Run a benchmark, then evaluate the produced experiment.",
+        allow_abbrev=False,
+    )
     parser.add_argument("--agent")
     parser.add_argument("--data")
     parser.add_argument("--split", default=None)
@@ -152,7 +157,11 @@ def _source_config(root_config: dict, agent_config: str | None) -> dict:
     cfg_path = Path(agent_config)
     if not cfg_path.is_absolute():
         cfg_path = Path.cwd() / cfg_path
-    return load_config_file(cfg_path) if cfg_path.exists() else root_config
+    if not cfg_path.exists():
+        return root_config
+    config = load_config_file(cfg_path)
+    validate_runtime_config_schema(config, cfg_path)
+    return config
 
 
 def _run_output_base(agent: str, data: str, split: str | None, model_id: str) -> Path:
@@ -276,6 +285,7 @@ def run_and_eval(argv: list[str] | None = None) -> int:
     known, _ = _shared_parser().parse_known_args(raw_args)
 
     root_config = load_config_file(CONFIG_PATH)
+    validate_runtime_config_schema(root_config, CONFIG_PATH)
     defaults = root_config.get("default", {})
     # Mirror configure_run_parser/eval's default agent so an omitted --agent
     # with no default.agent resolves to the same path both stages use.

@@ -4,6 +4,10 @@
 #   runtime config = agents.<agent> + models.<model> + browsers.<browser>
 # Select defaults globally with default.model/default.browser. Override per run
 # with `--model` and `--browser-id`.
+#
+# Increment this integer whenever existing ignored config.yaml files require
+# manual migration. Model-executing commands validate it before using the config.
+config_schema_version: 1
 
 default:
   agent: browser-use

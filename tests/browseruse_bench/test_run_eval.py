@@ -12,6 +12,7 @@ import browseruse_bench.cli.run_eval as run_eval_mod
 from browseruse_bench.cli.run_eval import run_and_eval
 
 _ROOT_CONFIG = {
+    "config_schema_version": 1,
     "default": {"agent": "cursor", "data": "LexBench-Browser", "model": "cursor"},
     "models": {"cursor": {"model_id": "gpt-5.2", "api_key": "$CURSOR_API_KEY"}},
     "browsers": {"lexmount": {"browser_id": "lexmount"}},
@@ -102,6 +103,19 @@ def test_chains_run_then_eval_with_model_id_and_timestamp(harness: _Harness) -> 
     assert ev[ev.index("--model-id") + 1] == "gpt-5.2"  # from the emitted run dir
     assert ev[ev.index("--timestamp") + 1] == "20260101_000000"
     assert ev[ev.index("--agent") + 1] == "cursor"
+
+
+def test_help_does_not_require_runtime_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        run_eval_mod,
+        "load_config_file",
+        lambda _: pytest.fail("--help must exit before loading runtime config"),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_and_eval(["--help"])
+
+    assert exc_info.value.code == 0
 
 
 def test_passthrough_model_flows_to_eval_model_id(harness: _Harness) -> None:
@@ -293,7 +307,11 @@ def test_default_agent_falls_back_to_agent_tars_like_run_parser(
     monkeypatch.setattr(cli_pkg, "main", h.cli_main)
     monkeypatch.setattr(
         run_eval_mod, "load_config_file",
-        lambda _: {"default": {"data": "LexBench-Browser"}, "agents": {}},
+        lambda _: {
+            "config_schema_version": 1,
+            "default": {"data": "LexBench-Browser"},
+            "agents": {},
+        },
     )
     monkeypatch.setattr(run_eval_mod, "_run_output_base", lambda agent, data, split, mid: h.exp_root / mid)
     monkeypatch.setattr(run_eval_mod, "resolve_output_model_id", lambda *a: "gpt-5.2")

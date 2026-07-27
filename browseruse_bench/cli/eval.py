@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,6 @@ from typing import Any
 from browseruse_bench.eval.base import EvaluatorArgs
 from browseruse_bench.eval.model import TaskIdLogFilter
 from browseruse_bench.eval.registry import get_evaluator_class
-from browseruse_bench.utils.stats import calculate_failure_category_stats
 from browseruse_bench.utils import (
     REPO_ROOT,
     DataSource,
@@ -33,6 +33,8 @@ from browseruse_bench.utils import (
     resolve_split,
     setup_logger,
 )
+from browseruse_bench.utils.config_loader import validate_runtime_config_schema
+from browseruse_bench.utils.stats import calculate_failure_category_stats
 
 CONFIG_PATH = REPO_ROOT / "config.yaml"
 load_env_file(REPO_ROOT / ".env")
@@ -524,6 +526,19 @@ def configure_eval_parser(parser: argparse.ArgumentParser, config: dict[str, Any
 
 def eval_command(args: argparse.Namespace, config: dict[str, Any]) -> int:
     """Entry point for the eval subcommand."""
+    validate_runtime_config_schema(config, "root config.yaml")
+    if args.agent_config is not None:
+        cfg_path = args.agent_config
+        if not cfg_path.is_absolute():
+            cfg_path = Path.cwd() / cfg_path
+        if not cfg_path.exists():
+            raise SystemExit(f"[FAILED] --agent-config file not found: {cfg_path}")
+        external_cfg = load_config_file(cfg_path)
+        validate_runtime_config_schema(external_cfg, cfg_path)
+        external_eval = external_cfg.get("eval", {})
+        if external_eval:
+            config = {**config, "eval": {**config.get("eval", {}), **external_eval}}
+
     extra_args = getattr(args, "extra_args", [])
     agent_name = normalize_agent_name(args.agent, config)
     benchmark_name = normalize_benchmark_name(args.data)
@@ -532,23 +547,19 @@ def eval_command(args: argparse.Namespace, config: dict[str, Any]) -> int:
 
 @handle_cli_errors
 def main(argv: list[str] | None = None) -> int:
+    cli_args = list(argv) if argv is not None else sys.argv[1:]
     config = load_config_file(CONFIG_PATH)
+    help_requested = any(arg in {"-h", "--help"} for arg in cli_args)
+    if help_requested and not isinstance(config, dict):
+        config = {}
+    elif not help_requested:
+        validate_runtime_config_schema(config, CONFIG_PATH)
     parser = argparse.ArgumentParser(prog="bubench eval")
     configure_eval_parser(parser, config)
-    args, extra = parser.parse_known_args(argv)
+    args, extra = parser.parse_known_args(cli_args)
     if extra:
         logger.info("Forwarding extra arguments: %s", " ".join(extra))
     args.extra_args = extra
-    if args.agent_config is not None:
-        cfg_path = args.agent_config
-        if not cfg_path.is_absolute():
-            cfg_path = Path.cwd() / cfg_path
-        if not cfg_path.exists():
-            raise SystemExit(f"[FAILED] --agent-config file not found: {cfg_path}")
-        external_cfg = load_config_file(cfg_path)
-        external_eval = external_cfg.get("eval", {})
-        if external_eval:
-            config = {**config, "eval": {**config.get("eval", {}), **external_eval}}
     return eval_command(args, config)
 
 

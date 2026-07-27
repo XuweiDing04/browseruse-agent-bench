@@ -91,11 +91,17 @@ icon: "rocket"
     ```
 
     根目录 `config.yaml` 是项目的运行时主配置，`$VAR` 占位符会在运行时从 `.env` 解析。
+    该文件被 Git 忽略，因此拉取仓库更新不会覆盖本地密钥和自定义配置。执行模型的
+    `run`、`run-eval` 和 `eval` 命令会在读取配置前校验顶层
+    `config_schema_version`；如果版本落后，请先备份 `config.yaml`，再合并最新版
+    `config.example.yaml` 中的必需改动，最后更新版本号。
     需要配置三部分：
 
     **1. 模型** — 在顶层 `models` 定义共享模型配置，并通过 `default.model` 选择默认模型：
 
     ```yaml
+    config_schema_version: 1
+
     default:
       model: gpt-5.4
 

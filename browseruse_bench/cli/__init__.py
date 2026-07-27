@@ -22,8 +22,10 @@ from browseruse_bench.utils import (
     load_env_file,
     setup_logger,
 )
+from browseruse_bench.utils.config_loader import validate_runtime_config_schema
 
 CONFIG_PATH = REPO_ROOT / "config.yaml"
+_SCHEMA_GATED_COMMANDS = {"eval", "run"}
 
 # Preload .env from root directory for unified configuration reading
 load_env_file(REPO_ROOT / ".env")
@@ -131,6 +133,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         return run_and_eval(cli_args[1:])
 
     config = load_config_file(CONFIG_PATH)
+    help_requested = any(arg in {"-h", "--help"} for arg in cli_args[1:])
+    if cli_args and cli_args[0] in _SCHEMA_GATED_COMMANDS and not help_requested:
+        validate_runtime_config_schema(config, CONFIG_PATH)
+    elif help_requested and not isinstance(config, dict):
+        config = {}
     parser = _build_parser(config)
     args, extra = parser.parse_known_args(argv)
     if extra:

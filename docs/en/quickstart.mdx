@@ -91,11 +91,18 @@ icon: "rocket"
     ```
 
     The root `config.yaml` is the canonical runtime config. `$VAR` placeholders are
-    resolved from `.env` at runtime. Three parts to set up:
+    resolved from `.env` at runtime. It is ignored by Git, so pulling repository
+    updates does not replace local credentials or custom settings. Model-executing
+    commands (`run`, `run-eval`, and `eval`) check its top-level
+    `config_schema_version` before using it. If the version is stale, back up
+    `config.yaml`, merge the required changes from the latest `config.example.yaml`,
+    and then update the version. Three parts to set up:
 
     **1. Models** — define shared model profiles under top-level `models` and pick the default in `default.model`:
 
     ```yaml
+    config_schema_version: 1
+
     default:
       model: gpt-5.4
 

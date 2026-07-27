@@ -94,6 +94,7 @@ def _eval_args(**overrides) -> argparse.Namespace:
         api_key="k", base_url="", model="judge", score_threshold=None,
         num_worker=1, dry_run=False, force_reeval=False,
         data_source="local", force_download=False, eval_strategy=None,
+        agent_config=None, extra_args=[],
     )
     for key, value in overrides.items():
         setattr(ns, key, value)
@@ -176,3 +177,45 @@ def test_api_key_default_does_not_shadow_config_eval_key(monkeypatch) -> None:
     eval_cfg = {"api_key": "sk-config-key"}
     resolved = args.api_key or eval_cfg.get("api_key") or "sk-stale-env-key"
     assert resolved == "sk-config-key"
+
+
+def test_eval_command_rejects_stale_root_config_before_evaluation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        eval_cli,
+        "run_evaluation",
+        lambda *args: pytest.fail("stale config must fail before evaluation"),
+    )
+
+    with pytest.raises(SystemExit, match="ignored by Git"):
+        eval_cli.eval_command(
+            _eval_args(agent="browser-use", data="LexBench-Browser"),
+            {"agents": {"browser-use": {}}},
+        )
+
+
+def test_eval_command_validates_explicit_agent_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "legacy.yaml"
+    config_path.write_text("eval: {}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        eval_cli,
+        "run_evaluation",
+        lambda *args: pytest.fail("stale override must fail before evaluation"),
+    )
+
+    with pytest.raises(SystemExit, match=str(config_path)):
+        eval_cli.eval_command(
+            _eval_args(
+                agent="browser-use",
+                data="LexBench-Browser",
+                agent_config=config_path,
+            ),
+            {
+                "config_schema_version": 1,
+                "agents": {"browser-use": {}},
+            },
+        )

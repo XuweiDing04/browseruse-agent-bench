@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import argparse
 import re
 from pathlib import Path
 
 import pytest
 
 from browseruse_bench.browsers import login_contexts as lc
+from browseruse_bench.cli import run as run_module
 from browseruse_bench.cli.run import (
     _canonicalize_cli_browser_id,
-    _classify_js_code_for_log,
     _claim_unique_run_dir,
     _clarify_agent_stdout_line,
+    _classify_js_code_for_log,
     resolve_lexmount_routing_for_task,
 )
 
@@ -150,6 +152,56 @@ def test_canonicalize_cli_browser_id_falls_back_to_backend_registry() -> None:
     assert _canonicalize_cli_browser_id("LEXMOUNT", {"browsers": None}) == "lexmount"
     assert _canonicalize_cli_browser_id(None, {}) is None
     assert _canonicalize_cli_browser_id("no-such-backend", {}) == "no-such-backend"
+
+
+def test_run_command_rejects_stale_root_config_before_launch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(run_module, "add_script_log_handler", lambda *args: None)
+    monkeypatch.setattr(
+        run_module,
+        "run_agent",
+        lambda *args: pytest.fail("stale config must fail before launching the agent"),
+    )
+    args = argparse.Namespace(agent="browser-use", agent_config=None)
+
+    with pytest.raises(SystemExit, match="ignored by Git"):
+        run_module.run_command(args, {"agents": {"browser-use": {}}})
+
+
+def test_run_command_validates_explicit_agent_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(run_module, "add_script_log_handler", lambda *args: None)
+    config_path = tmp_path / "legacy.yaml"
+    config_path.write_text("agents: {}\n", encoding="utf-8")
+    args = argparse.Namespace(
+        agent="browser-use",
+        agent_config=config_path,
+    )
+
+    with pytest.raises(SystemExit, match=str(config_path)):
+        run_module.run_command(
+            args,
+            {
+                "config_schema_version": 1,
+                "agents": {"browser-use": {}},
+            },
+        )
+
+
+def test_run_command_does_not_allow_agent_config_to_bypass_stale_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(run_module, "add_script_log_handler", lambda *args: None)
+    config_path = tmp_path / "current.yaml"
+    config_path.write_text("config_schema_version: 1\nagents: {}\n", encoding="utf-8")
+    args = argparse.Namespace(agent="browser-use", agent_config=config_path)
+
+    with pytest.raises(SystemExit, match="root config.yaml"):
+        run_module.run_command(args, {"agents": {"browser-use": {}}})
 
 
 def test_claim_unique_run_dir_avoids_collision(tmp_path: Path) -> None:

@@ -61,6 +61,7 @@ from browseruse_bench.utils import (
     resolve_timeout_value,
     setup_logger,
 )
+from browseruse_bench.utils.config_loader import validate_runtime_config_schema
 from browseruse_bench.utils.run_identity import (
     INCLUDE_RAW_MACHINE_IDENTIFIERS_ENV_KEY,
     MACHINE_ID_ENV_KEY,
@@ -1343,6 +1344,7 @@ def run_command(args: argparse.Namespace, config: dict[str, Any]) -> int:
     """Entry point for the run subcommand."""
     add_script_log_handler(logger, REPO_ROOT / "output" / "logs", "run")
     logger.info("Starting run command")
+    validate_runtime_config_schema(config, "root config.yaml")
     args.agent = normalize_agent_name(args.agent, config)
     source_cfg = config
     source_label = "root config.yaml"
@@ -1354,6 +1356,7 @@ def run_command(args: argparse.Namespace, config: dict[str, Any]) -> int:
             raise SystemExit(f"[FAILED] --agent-config file not found: {cfg_path}")
         source_cfg = load_config_file(cfg_path)
         source_label = str(cfg_path)
+        validate_runtime_config_schema(source_cfg, source_label)
 
     args.browser_id = _canonicalize_cli_browser_id(args.browser_id, source_cfg)
 
@@ -1378,10 +1381,16 @@ def run_command(args: argparse.Namespace, config: dict[str, Any]) -> int:
 
 @handle_cli_errors
 def main(argv: list[str] | None = None) -> int:
+    cli_args = list(argv) if argv is not None else sys.argv[1:]
     config = load_config_file(CONFIG_PATH)
+    help_requested = any(arg in {"-h", "--help"} for arg in cli_args)
+    if help_requested and not isinstance(config, dict):
+        config = {}
+    elif not help_requested:
+        validate_runtime_config_schema(config, CONFIG_PATH)
     parser = argparse.ArgumentParser(prog="bubench run")
     configure_run_parser(parser, config)
-    args, extra = parser.parse_known_args(argv)
+    args, extra = parser.parse_known_args(cli_args)
     if extra:
         parser.error(f"unrecognized arguments: {' '.join(extra)}")
     return run_command(args, config)
